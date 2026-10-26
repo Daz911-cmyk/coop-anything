@@ -151,6 +151,43 @@ So the same command layer works for a lord that is not the main player, and a ne
 - Whether a spawned lord survives save and load.
 - No mutation run for test 3; no screenshots.
 
+### Test 4: friend lord, AI off, save/load, main-player swap (2026-10-26, observed)
+Phase A (from saveGame_0, 06:11): spawn "Friend", claim + settle Goldhof, measure AI, pause AI, save as saveGame_7.
+```
+PASS friend town founded Goldhof lordsName=Friend
+PASS baseline: AI counters move while AI is on friend 8/2 -> 28/7, control 33/8 -> 53/13
+PASS friend AI stopped (counters frozen) friend 28/7 -> 28/7 (AICommandHandle=paused active=false ...)
+PASS control AI still runs control 53/13 -> 73/18
+PASS game saved with the friend lord saveGame_7                                   ALL OK
+```
+Can fail: the run before used `K2_ClearAndInvalidateTimerHandle`, which UE4SS rejects (the handle is a
+by-reference param and needs an out table): `FAIL friend AI stopped friend 28/6 -> 48/11`.
+Working call: `KismetSystemLibrary:K2_PauseTimerHandle(lord, lord.AICommandHandle)` for
+`AICommandHandle`, `AIGeneralStrategyHandle`, `AILetterwritingHandle` (all three report active=false).
+AI progress is visible in `APawnCPP_AI.AI_general_cycles` / `AI_tactics_cycles`.
+
+Phase B (load saveGame_7, 06:15):
+```
+lord 3 PawnCPP_AI main=false ai=true regions=[Goldhof(settled)]
+PASS friend lord exists after load ... lordsName=Friend
+PASS friend still owns a settled town after load Goldhof
+PASS after load: friend AI runs again (expected, info) friend 25/6 -> 45/11
+PASS friend AI stopped (counters frozen) friend 45/11 -> 45/11
+PASS control AI still runs control 45/11 -> 65/16
+PASS controller now drives the friend lord flags ok, playerRef ok, possess ok | pc.Pawn=PawnCPP_AI_2147467440
+PASS engine playerRef is the friend
+PASS friend (as main) builds a road 1 new (spline points 2, committed)
+```
+Main-player swap: `old.isMainPlayer=false; friend.isMainPlayer=true; friend.isAI=false;
+RTSMultiEngineCPP.playerRef=friend; PlayerController:Possess(friend)`.
+
+Facts learned: a spawned lord is kept in the save (name and town); its AI restarts on every load, so the
+mod must pause it after each load. Identify lords after load by their town (`ARegion` names are stable),
+object names change.
+
+Not verified: the screen. `HighResShot 1` produced no file (game quit 3 s later). Whether the HUD, resources,
+building menu and camera now show the friend's town is unknown until a visual check.
+
 ### Derived plan (not tested)
 - Host: one `APawnCPP` per remote player (spawned once, kept in the save), AI off; remote commands applied to it.
 - Client: the friend needs to see the shared world with their lord as the controlled one. Without determinism,
