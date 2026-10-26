@@ -22,6 +22,7 @@ Path 2 (build from zero). Started 2026-10-26.
 - UE4SS: upstream experimental build `UE4SS_v3.0.1-1183-gcdbc0b66.zip`
   (SHA-256 `e4a47e23e2eeb8379c4fc388d1b1686f01c6c5930d84a2ee4a6a9574b274e681`, release asset dated 2026-10-25).
   Stable v3.0.1 predates UE 5.5; the experimental notes list 5.5 support. Works on 0.8.104 (observed).
+- Note: the test copy shares saves with the real game unless started with `-userdir` (see below).
 - Mods kept outside the game folder via `+ModsFolderPaths = <test dir>/mods` in UE4SS-settings.ini
   (additive; default mods still load). Handy when tools limit folder depth.
 
@@ -41,6 +42,16 @@ Game module `ManorLords.hpp`: 151 classes, 232 structs. Key classes:
   `ARoad`, `AConstruction`, `ABattlefield`, `AWeatherMaster`, `UProductionSubsystem` (UWorldSubsystem).
 - Saves: `UMLSaveGame`, `UMLSaveGameDescr`, `UMLMenuSaveGame` (USaveGame).
 - `ANotStrongholdCPPGameModeBase` is empty: the game uses no UE replication; all state is local.
+
+## Phase 3: call logging (observed, 2026-10-26)
+- `MLCallLog` Lua mod: RegisterHook on 569 reflected functions of the game classes above (UI-refresh style
+  names like update*/get*/is* skipped), logs the first 15 calls of each with parameters, then every 200th.
+  562 hooks installed; 7 failed, all of them delegate signatures (not UFunctions), as expected.
+  F9 in game writes a MARK line to tag tester actions.
+- Hooks only fire for calls that go through the reflection system (Blueprint/UI to C++), not for
+  C++-to-C++ calls. Good for finding UI command entry points; native-only paths need native hooks.
+- Test copy launched with `-userdir=<test dir>/userdir`: UE 5.5 shipping honours it, Saved/ (saves, config,
+  logs) goes there, so tests never touch the player's real saves in %LOCALAPPDATA%\ManorLords.
 
 ## Derived (not yet tested)
 - Since each lord is an `APawnCPP` with an owner id used by spawn functions, a second human could be
