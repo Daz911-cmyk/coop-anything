@@ -53,6 +53,34 @@ Game module `ManorLords.hpp`: 151 classes, 232 structs. Key classes:
 - Test copy launched with `-userdir=<test dir>/userdir`: UE 5.5 shipping honours it, Saved/ (saves, config,
   logs) goes there, so tests never touch the player's real saves in %LOCALAPPDATA%\ManorLords.
 
+## Phase 3: first command map (observed, 2026-10-26, owner play session, 28 F9 marks)
+New game, building, road, field, worker assignment, game speed, militia, squad select, save, load.
+Calls seen right at the tester's actions (reflected, so hookable and callable from Lua):
+
+| Player action | Calls observed |
+|---|---|
+| Pick a building to place | `PawnCPP:selectBuildingMode(id, FStat)`, `PawnCPP:setPlacedBuilding(id)`, `SetBuildingCategory(n)` |
+| Confirm building placement | **no reflected call**; only `Construction:setupConstructionFast()` afterwards (native path) |
+| Draw and confirm a road | `PawnCPP:setRoadMode(true, FVector, false)` then `PawnCPP:commitRoad()` (no params) |
+| Confirm a field/pasture | `PawnCPP:addCommitFieldRequest()` (no params) |
+| Add/remove workers | `SMBuildingMaster:addActiveWorkerFamily()`, `SMBuildingMaster:changeActiveLivestockWorkers(+1/-1)` |
+| Pause / speed | `PawnCPP:setGameSpeed(0 / 1 / 4 / 8)` |
+| Raise militia | `PawnCPP:addMilitiaSquad(ARegion, "bowMilitia")` |
+| Select squad | `PawnCPP:selectSquad(id, bool, bool)`, `deselectSquad(id)`; **move order: no reflected call** |
+| Save | `PawnCPP:requestSaveFile(name, name)`, `onSavingFinished()`, `MLGameInstance:ExportSaveThumbnailRT` |
+| Load | `PawnCPP:stopVAMP()`, LoadMap, `setMainUIMode` |
+| Open/close building panel | `SMBuildingMaster:setTabIsOpen(bool)`, `PawnCPP:deselectBuilding(building)` |
+
+Noise to filter next time: `setIsUsingUI` (every frame), `setDipToBlackOpacity`, `OnParticleSystemFinished`,
+`clearBufferedMovement`, `SetCategoryCounterWidget`, settings calls on every pause menu open.
+
+### Derived
+- Commit calls without parameters (`commitRoad`, `addCommitFieldRequest`) read the pawn's in-progress state
+  (road points, field polygon). To replay them on the host, capture that state from the pawn's properties in a
+  pre-hook (offsets are in the CXX dump) and set it on the host's pawn for the remote player before calling.
+- Building placement and squad move orders need native hooks (C++ UE4SS mod), found from the
+  `ASMBuildingMaster`/`ASMUnit` spawn path and `UUnitMovementComponent`.
+
 ## Derived (not yet tested)
 - Since each lord is an `APawnCPP` with an owner id used by spawn functions, a second human could be
   modelled as another lord pawn on the host whose commands come from the network instead of AI.
