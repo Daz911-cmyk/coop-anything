@@ -124,6 +124,40 @@ client: PASS client got acks 4 ack(s) for 4 command(s)       ALL OK
 - Unwanted capture: the game calls `setGameSpeed` itself while loading a save, and the client sent that as a
   player command (#1). Capture must be limited to calls from player input/UI.
 
+## Phase 4: decision and lord probe (2026-10-26)
+**Owner's decision:** each player is their own lord with their own region on one map (not a shared town).
+
+### Test 3: lordprobe, one copy (2026-10-26 05:55, observed)
+Save at the start of a game: 3 lords (main player + 2 `APawnCPP_AI`), 8 regions. `ARegion.ownerPawn` holds the owner.
+```
+PASS AI lord with a region PawnCPP_AI_2147467453 / hofstetten
+PASS apply ROAD to AI lord ROAD|80937.48,-82747.33,2870.00|1.0000|... -> road with 3 points (async commit)
+PASS AI lord road created 1 new road(s) (spline points 3, committed)
+PASS spawnNewAILord creates a lord pcall=true new=PawnCPP_AI_2147463466
+PASS free region found Goldhof
+PASS finalizeClaim gives the region to the friend pcall=true owner=PawnCPP_AI_2147463466
+PASS settleRegion founds a town for the friend pcall=true settled=true owner=PawnCPP_AI_2147463466
+after: lord 3 PawnCPP_AI main=false ai=true regions=[Goldhof(settled)]
+```
+Calls: `RTSMultiEngineCPP:spawnNewAILord("Friend", false, nil, false)`, then `friend:finalizeClaim(region, false)`,
+then `friend:settleRegion(region, FTransform{region actor location}, 1, ESettlementType.Town, nil)`.
+
+So the same command layer works for a lord that is not the main player, and a new lord can get its own town.
+
+### Not checked yet
+- Whether the spawned lord's AI acts on its own (`APawnCPP_AI` has AI timers; `startAI(speed, canBuild)`).
+  A remote human lord must have its AI off. Unknown.
+- Whether the road built for the AI lord belongs to its region (`ARoad.regionA/B` not read).
+- Whether a spawned lord survives save and load.
+- No mutation run for test 3; no screenshots.
+
+### Derived plan (not tested)
+- Host: one `APawnCPP` per remote player (spawned once, kept in the save), AI off; remote commands applied to it.
+- Client: the friend needs to see the shared world with their lord as the controlled one. Without determinism,
+  a practical start is: client sends commands; host is the only simulation; client view is resynced from host
+  snapshots (the game's own save file sent over the network and loaded with the friend's lord made the main
+  player), with command replay in between. Later: per-object state sync for buildings, roads, units.
+
 ## Derived (not yet tested)
 - Since each lord is an `APawnCPP` with an owner id used by spawn functions, a second human could be
   modelled as another lord pawn on the host whose commands come from the network instead of AI.
