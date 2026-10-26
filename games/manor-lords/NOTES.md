@@ -188,6 +188,31 @@ object names change.
 Not verified: the screen. `HighResShot 1` produced no file (game quit 3 s later). Whether the HUD, resources,
 building menu and camera now show the friend's town is unknown until a visual check.
 
+### Test 5: screen check after the runtime swap (2026-10-26 06:48-07:05, observed)
+Same phase B with `noquit=1`, camera moved to the friend town (`friend:SetPosition(region location)`, ok).
+Screenshot of the running game after the swap: the top bar still says **Eichenhau** and the portrait and coat
+of arms are the original lord's, while the camera is at Goldhof. So the runtime swap is partial: game logic
+(`playerRef`, `isMainPlayer`, possessed pawn, commands) uses the friend, but the HUD stays bound to the lord the
+save was loaded with.
+
+**Autosave after the swap rewrites the save with the friend as the player.** The instance stayed in game for
+~10 minutes and the game autosaved into the loaded slot (saveGame_7). Loading saveGame_7 afterwards gave:
+```
+lord 1 PawnCPP_AI main=false ai=true regions=[hofstetten,selbitz]
+lord 2 PawnCPP_AI main=false ai=true regions=[]
+lord 3 MyPawnCPP_BP3_C main=true ai=false regions=[Goldhof(settled)]
+```
+The player pawn now owns Goldhof; Eichenhau has no owner and the original player lord is gone. So: swap +
+save turns the friend into the save's player. This is exactly what a client copy needs (load a host save in
+which the friend is the player), and also a hazard for the host (never save while swapped).
+
+The next run on that save crashed the game: the test treated the (now non-AI) player pawn as the friend and
+paused AI timer handles that pawn does not have. Test bug, not a game finding. Guard needed: only touch AI
+handles on `APawnCPP_AI`.
+
+Unverified: whether a save made this way shows Goldhof in the HUD when loaded (needs a screenshot of a fresh
+load), and what happens to the original player lord's town in such a save (lost owner here).
+
 ### Derived plan (not tested)
 - Host: one `APawnCPP` per remote player (spawned once, kept in the save), AI off; remote commands applied to it.
 - Client: the friend needs to see the shared world with their lord as the controlled one. Without determinism,
