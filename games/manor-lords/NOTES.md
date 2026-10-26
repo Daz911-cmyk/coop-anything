@@ -81,6 +81,49 @@ Noise to filter next time: `setIsUsingUI` (every frame), `setDipToBlackOpacity`,
 - Building placement and squad move orders need native hooks (C++ UE4SS mod), found from the
   `ASMBuildingMaster`/`ASMUnit` spawn path and `UUnitMovementComponent`.
 
+## Phase 5: command replay prototype (observed, 2026-10-26)
+`MLCoopNet` Lua mod. Commands are text lines, e.g.
+`ROAD|<start x,y,z>|<tangentScale>|<p1>;<p2>;...` and `SPEED|<value>`.
+
+**How a road command is replayed** (found by a failing test first):
+setting `roadPoints` and calling `commitRoad()` does nothing; the commit reads the pawn's preview road
+(`APawnCPP.dummyRoad`, an `ARoad` with a `USplineComponent`). Working sequence on the game thread:
+`setRoadMode(true, start, true)` -> next frame: `dummyRoad.Spline:ClearSplinePoints(true)`,
+`AddSplinePoint(p, World, true)` per point -> next frame: `commitRoad()` -> `setRoadMode(false, ...)`.
+Capture on the sending side reads the same spline (`GetLocationAtSplinePoint(i, World)`).
+
+**Autoload without a human:** at the first InitGameState (main menu), set
+`MLGameInstance.savefileToLoad = "saveGame_0"` and call `GameplayStatics:OpenLevel(pc, "/Game/NotStronghold/Maps/Mission01_ROBBER")`.
+The save loads. Tests end with the console command `quit`.
+
+### Test 1: selftest, one copy (2026-10-26 05:39)
+```
+PASS main pawn found MyPawnCPP_BP3_C ...
+PASS apply SPEED SPEED|2.000 -> speed 2.0
+PASS apply ROAD call ROAD|58563.60,31716.53,-1574.79|1.0000|... -> road with 3 points (async commit)
+PASS road actor created 1 new road(s) Road_2147463383 (spline points 3, committed)
+```
+Can fail: the previous build (roadPoints + commitRoad, no spline) gave `FAIL road actor created Road actors 70 -> 70`.
+
+### Test 2: duo, two copies on one PC (2026-10-26 05:46)
+Second instance = hard links to the test copy, private `ue4ss/`, own `-userdir`, role file `coop_role.txt`
+next to the exe. Transport: a shared text file (`to_host.txt` / `to_client.txt` with ACKs), host polls every 250 ms.
+The client has hooks on `PawnCPP:commitRoad` and `PawnCPP:setGameSpeed` (real capture path); a client bot
+drives the game, the host applies and checks its own world.
+```
+host:   PASS host apply #3 ROAD|64563.60,31716.53,-1574.79|1.0000|... -> road with 3 points (async commit)
+host:   PASS host world has client road #3 1 new road(s) (spline points 3, committed)
+host:   PASS host received all commands 4 commands          ALL OK
+client: PASS client got acks 4 ack(s) for 4 command(s)       ALL OK
+```
+### What this does NOT prove yet (honest scope)
+- Transport is a file on one PC, not a network (Steam relay is next).
+- The host applies commands to its own lord, not to a separate lord for the friend.
+- Nothing flows back: the client's world is not synced from the host and will drift.
+- Road checked by "a new ARoad actor exists", not by position, cost or pathfinding; no screenshot.
+- Unwanted capture: the game calls `setGameSpeed` itself while loading a save, and the client sent that as a
+  player command (#1). Capture must be limited to calls from player input/UI.
+
 ## Derived (not yet tested)
 - Since each lord is an `APawnCPP` with an owner id used by spawn functions, a second human could be
   modelled as another lord pawn on the host whose commands come from the network instead of AI.
