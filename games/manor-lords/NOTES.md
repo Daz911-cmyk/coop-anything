@@ -249,6 +249,44 @@ Findings:
 Not yet: the host lord on the client is a player-class pawn with no input (does it do anything over time?),
 time sync, the client's world drifting from the host's, and getting host changes back to the client.
 
+### Phase 5b: network relay (2026-10-27, observed)
+Design: the Lua mod keeps talking through files in its net folder; a separate relay program carries those files
+between PCs. Each copy finds its own net folder in `coop_net.txt` next to the game exe (test host copy:
+`<test dir>/net-host/`, client copy: `<test dir>/net-client/`). Mod setting `relay=1`: the host does not copy the
+client save itself; the relay sends it.
+
+`mlcoop-relay.exe` (C# 5, ~380 lines, `local/relay/relay.cs`): compiled on the owner's PC by the C# compiler that
+ships with Windows (`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, 20 KB exe). No compiler
+download was needed: the container could not reach mingw/zig package mirrors (proxy policy), and .NET Framework 4
+is on every Windows 10/11 PC. Frames: K keep-alive, L line to host, A line to client, F file chunk (60000 bytes),
+R save-ready marker, H hello. Transports: `udp` (localhost, tests) and `steam`.
+
+**Steam transport uses the game's own `steam_api64.dll`** (Steamworks v157, SHA-256 `4df999c0...083eea`).
+Checked exports: it has no `SteamAPI_InitFlat`, no `SteamUser_v023`, no `SteamFriends_v018`; it does have
+`SteamAPI_Init`, `SteamUser_v021`, `SteamFriends_v017`, `SteamMatchmaking_v009`,
+`SteamNetworkingMessages_SteamAPI_v002`, manual dispatch, lobby and friend calls. The relay uses those versions,
+so nothing has to be downloaded or redistributed. 64-bit message layout: data 0, size 8, sender identity 16.
+
+Test 7, relay over localhost UDP with two game copies (09:46-09:48):
+```
+relay host:   CONNECTED to peer / peer says: client relay
+relay host:   sent file saveGame_8.sav (2230472 bytes) ... sent file friend.txt (7 bytes) / client save sent, ready marker sent
+relay client: received file saveGame_8.sav (2230472 bytes) -> <test dir>\userdir2\Saved\SaveGames ... client save is ready for the game
+host mod:     PASS host: friend town founded Goldhof shown as "Am Aiberbach" / host: relay mode, the relay sends the client save
+client mod:   PASS client: I am the friend lord (own the friend town) own=Goldhof shown as "Am Aiberbach" lordsName=Friend
+host mod:     PASS host world has client road #1 1 new road(s) (spline points 3, committed)
+client mod:   PASS client: host acknowledged my commands 1 ack(s) for 1 command(s)
+```
+Client screen: top bar "Am Aiberbach", the friend's empty portrait.
+
+Test 8, Steam smoke test, one PC, one account (09:56): `steam ok` / `creating friends-only lobby...` /
+`LOBBY 109775242487825545 created` in 0.3 s. Not tested: a second account joining, messages over Steam, the
+sender offset on x64 with real traffic (the playbook says to verify with two accounts).
+
+Open: the mod is still a test harness (spawns the friend on every host start, bot commands, quits on BYE).
+Play mode needed: keep the friend lord in the host's save, pause its AI after every load, capture real player
+input on the client, no bots and no auto-quit.
+
 ### Derived plan (not tested)
 - Host: one `APawnCPP` per remote player (spawned once, kept in the save), AI off; remote commands applied to it.
 - Client: the friend needs to see the shared world with their lord as the controlled one. Without determinism,
