@@ -195,16 +195,14 @@ of arms are the original lord's, while the camera is at Goldhof. So the runtime 
 (`playerRef`, `isMainPlayer`, possessed pawn, commands) uses the friend, but the HUD stays bound to the lord the
 save was loaded with.
 
-**Autosave after the swap rewrites the save with the friend as the player.** The instance stayed in game for
-~10 minutes and the game autosaved into the loaded slot (saveGame_7). Loading saveGame_7 afterwards gave:
-```
-lord 1 PawnCPP_AI main=false ai=true regions=[hofstetten,selbitz]
-lord 2 PawnCPP_AI main=false ai=true regions=[]
-lord 3 MyPawnCPP_BP3_C main=true ai=false regions=[Goldhof(settled)]
-```
-The player pawn now owns Goldhof; Eichenhau has no owner and the original player lord is gone. So: swap +
-save turns the friend into the save's player. This is exactly what a client copy needs (load a host save in
-which the friend is the player), and also a hazard for the host (never save while swapped).
+**CORRECTION (2026-10-27): the "autosave rewrote saveGame_7" conclusion was wrong.** `saveGame_7` in the
+test folder was last written at 06:11; the autosave went to a separate `autosave.sav`. The 07:02 run that showed
+the player owning Goldhof was an extra instance started by a computer-use `open_application` call, which runs the
+game **without `-userdir`**, so it used the owner's real save folder. That folder has no `saveGame_7`, so the game
+most likely started a fresh game in which the player's random start region was Goldhof. Lesson: never use
+`open_application` for the game (it starts a new process without the test arguments); start copies only through
+the scripts. The owner's real save folder was checked afterwards (read-only): saves unchanged; only
+`rtsSettings.sav` (game settings) was rewritten by such an extra instance.
 
 The next run on that save crashed the game: the test treated the (now non-AI) player pawn as the friend and
 paused AI timer handles that pawn does not have. Test bug, not a game finding. Guard needed: only touch AI
@@ -212,6 +210,44 @@ handles on `APawnCPP_AI`.
 
 Unverified: whether a save made this way shows Goldhof in the HUD when loaded (needs a screenshot of a fresh
 load), and what happens to the original player lord's town in such a save (lost owner here).
+
+### Test 6: full co-op loop, two copies (2026-10-27 09:29, observed)
+`mode=coop`. Host loads saveGame_0, spawns "Friend", claims and settles a free region, pauses its AI, then for
+the length of one save makes the friend the player (`old.isMainPlayer=false`, `friend.isMainPlayer=true`,
+`friend.isAI=false`, `RTSMultiEngineCPP.playerRef=friend`), calls `requestSaveFile("saveGame_8")`, restores
+everything, copies the save files into the client's `userdir2`, and then applies client commands to the
+friend lord. The client waits at the main menu for the save, loads saveGame_8, and a bot draws a road.
+```
+host:   PASS host: friend town founded Goldhof shown as "Am Aiberbach"
+host:   PASS host: host lord is the player again
+host:   PASS host: host still owns its town Eichenhau
+host:   PASS host: client save copied to the client 5 file(s)
+client: lord 3 MyPawnCPP_BP3_C main=true ai=false regions=[Eichenhau(settled)]
+client: lord 4 MyPawnCPP_BP3_C main=true ai=false regions=[Goldhof(settled)]
+client: PASS client: I am the friend lord (own the friend town) own=Goldhof shown as "Am Aiberbach" lordsName=Friend
+client: FAIL client: current region is my town currentRegion=selbitz shown as "Boswies"
+client: PASS client: another lord still owns a settled town Eichenhau("Eichenhau")=Fritz, Goldhof("Am Aiberbach")=Friend(me)
+host:   PASS host apply #1 ROAD|75327.53,-15211.79,2870.00|... -> road with 3 points (async commit)
+host:   PASS host world has client road #1 1 new road(s) (spline points 3, committed)
+client: PASS client: host acknowledged my commands 1 ack(s) for 1 command(s)
+```
+Screenshot of the client copy: top bar shows **"Am Aiberbach"** (the friend's town), empty portrait (the friend
+lord was spawned without one), resources of the new town, the new-settlement tutorial. The client plays as the
+friend. The `currentRegion` check is a bad oracle (it follows the camera), not a game failure.
+
+Findings:
+- `ARegion.regionName` is the town's display name, chosen at random when a town is founded; the FName
+  (Goldhof) is the stable id.
+- In the client save both lords are of the player pawn class and both report `isMainPlayer=true`; the one the
+  `PlayerController` possesses after load is the friend. Use `PlayerController.Pawn` to find the local lord.
+- Crash found and fixed: also setting `old.isAI = true` during the client save crashed the host
+  (`EXCEPTION_ACCESS_VIOLATION reading address 0x15f8`; 0x15f8 lies inside `APawnCPP_AI`'s own fields,
+  so the save treated the player pawn as an AI lord). Never set `isAI` on a non-AI pawn class.
+- Tooling note: a file commit to the PC can carry a stale copy of a just-edited file; verify with SHA-256
+  after every commit before launching.
+
+Not yet: the host lord on the client is a player-class pawn with no input (does it do anything over time?),
+time sync, the client's world drifting from the host's, and getting host changes back to the client.
 
 ### Derived plan (not tested)
 - Host: one `APawnCPP` per remote player (spawned once, kept in the save), AI off; remote commands applied to it.
